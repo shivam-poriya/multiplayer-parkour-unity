@@ -546,6 +546,12 @@ LightProbeGroup:
   - {x: 7.1518564, y: 2.7763042, z: -11.2319765}
   - {x: 8.993203, y: 2.3566551, z: -8.796325}
   m_Dering: 1
+--- !u!4 &993022716 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 8091674753197373103, guid: 00867e65282c4974d9d6bd53251bfbe0,
+    type: 3}
+  m_PrefabInstance: {fileID: 1977640904}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1028513131
 GameObject:
   m_ObjectHideFlags: 0
@@ -739,6 +745,16 @@ PrefabInstance:
       propertyPath: m_Name
       value: brycePrefab
       objectReference: {fileID: 0}
+    - target: {fileID: 2466969319053667607, guid: 00867e65282c4974d9d6bd53251bfbe0,
+        type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 5654329442284022246, guid: 00867e65282c4974d9d6bd53251bfbe0,
+        type: 3}
+      propertyPath: spineBone
+      value: 
+      objectReference: {fileID: 993022716}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

@@ -64,9 +64,6 @@ public class playerController : MonoBehaviour
     [SerializeField]float smoothSpeed = 10f;
 
 
-
-
-
     // timeout deltatime
     float jumpTimeoutDelta;
     float fallTimeoutDelta;
@@ -194,7 +191,6 @@ public class playerController : MonoBehaviour
             animator.SetFloat(animx,xanimBlend);
             animator.SetFloat(animy,yanimBlend);
         }
-
     }
 
     public void addJumpForce()
