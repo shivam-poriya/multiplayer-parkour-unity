@@ -2,6 +2,9 @@ using PlayerMovement;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
+using Unity.VisualScripting;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.InputSystem.XR;
 
@@ -10,9 +13,9 @@ public class playerController : MonoBehaviour
     [Header("Player Movement")]
     [SerializeField] float runSpeed;
     [SerializeField] float sprintSpeed;
-    
+
     [SerializeField] float speedChangeRate;
-    [SerializeField]float RotationSmoothTime = 0.12f;
+    [SerializeField] float RotationSmoothTime = 0.12f;
 
     [Space(10)]
     [SerializeField] float JumpTimeout = 0.50f;
@@ -20,7 +23,8 @@ public class playerController : MonoBehaviour
     [SerializeField] float FallTimeout = 0.15f;
 
     [Space(10)]
-    [SerializeField] float JumpHeight = 1.2f;
+    [SerializeField] float FirstJumpHeight = 1.2f;
+    [SerializeField] float SecondJumpHeight = 1.4f;
 
     [SerializeField] float Gravity = -15.0f;
 
@@ -36,6 +40,10 @@ public class playerController : MonoBehaviour
     [Header("Cinemachine")]
     [SerializeField] GameObject CinemachineCameraTarget;
 
+    [Header("Double Jump")]
+    [SerializeField] int maxJumps = 2;
+    private int currentJumps;
+
     //Private variables
 
     //Player
@@ -46,22 +54,19 @@ public class playerController : MonoBehaviour
     float verticalVelocity;
     float terminalVelocity = 53.0f;
     float xanimBlend, yanimBlend;
-    float walkXVelo,walkYVelo;
-
 
     // animation IDs
     int animIDSpeed;
-    int animIDGrounded;
     int animIDJump;
     int animIDFreeFall;
     int animx;
     int animy;
     [Space(10)]
-    [SerializeField]Animator animator;
+    [SerializeField] Animator animator;
     CharacterController controller;
     InputSystem input;
-    [SerializeField]Transform mainCamera;
-    [SerializeField]float smoothSpeed = 10f;
+    [SerializeField] Transform mainCamera;
+    [SerializeField] float smoothSpeed = 10f;
 
 
     // timeout deltatime
@@ -73,6 +78,10 @@ public class playerController : MonoBehaviour
     float cinemachineTargetPitch;
     float TopClamp = 70.0f;
     float BottomClamp = -30.0f;
+    [SerializeField] Transform lowerRay;
+    [SerializeField] Transform upperRay;
+    [SerializeField] float raycastRange;
+    [SerializeField] float ledgeYOffset;
 
     void Start()
     {
@@ -80,7 +89,7 @@ public class playerController : MonoBehaviour
         controller = GetComponent<CharacterController>();
         input = GetComponent<InputSystem>();
         AssignAnimationIDs();
-
+        currentJumps = maxJumps;
         // reset our timeouts on start
         jumpTimeoutDelta = JumpTimeout;
         fallTimeoutDelta = FallTimeout;
@@ -102,7 +111,6 @@ public class playerController : MonoBehaviour
     void AssignAnimationIDs()
     {
         animIDSpeed = Animator.StringToHash("Speed");
-        animIDGrounded = Animator.StringToHash("Grounded");
         animIDJump = Animator.StringToHash("Jump");
         animIDFreeFall = Animator.StringToHash("FreeFall");
         animx = Animator.StringToHash("x");
@@ -116,9 +124,11 @@ public class playerController : MonoBehaviour
             transform.position.z);
         Grounded = Physics.CheckSphere(spherePosition, GroundedRadius, GroundLayers,
             QueryTriggerInteraction.Ignore);
-
-        // update animator
-        //animator.SetBool(animIDGrounded, Grounded);
+        if (Grounded)
+        {
+            // Reset jump count when grounded
+            currentJumps = maxJumps;
+        }
 
     }
 
@@ -142,28 +152,28 @@ public class playerController : MonoBehaviour
 
     void Move()
     {
-        float targetSpeed = input.sprint ? sprintSpeed:runSpeed;
+        float targetSpeed = input.sprint ? sprintSpeed : runSpeed;
         if (input.move == Vector2.zero) targetSpeed = 0.0f;
         float currentHorizontalSpeed = new Vector3(controller.velocity.x, 0.0f, controller.velocity.z).magnitude;
-        if(currentHorizontalSpeed < targetSpeed - 0.1f || currentHorizontalSpeed > targetSpeed + 0.1f)
+        if (currentHorizontalSpeed < targetSpeed - 0.1f || currentHorizontalSpeed > targetSpeed + 0.1f)
         {
-            speed = Mathf.Lerp(currentHorizontalSpeed,targetSpeed,Time.deltaTime*speedChangeRate);
-            speed = Mathf.Round(speed*1000f)/1000f;
+            speed = Mathf.Lerp(currentHorizontalSpeed, targetSpeed, Time.deltaTime * speedChangeRate);
+            speed = Mathf.Round(speed * 1000f) / 1000f;
         }
         else
         {
             speed = targetSpeed;
         }
 
-        animationBlend = Mathf.Lerp(animationBlend,targetSpeed,Time.deltaTime*speedChangeRate);
-        if(animationBlend < 0.01f) { animationBlend = 0f; }
+        animationBlend = Mathf.Lerp(animationBlend, targetSpeed, Time.deltaTime * speedChangeRate);
+        if (animationBlend < 0.01f) { animationBlend = 0f; }
 
         Vector3 inputDirection = new Vector3(input.move.x, 0.0f, input.move.y).normalized;
 
         if (input.move != Vector2.zero)
         {
-            targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg +mainCamera.eulerAngles.y;
-            if(input.sprint)
+            targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg + mainCamera.eulerAngles.y;
+            if (input.sprint)
             {
                 float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetRotation, ref rotationVelocity,
                                                        RotationSmoothTime);
@@ -172,7 +182,7 @@ public class playerController : MonoBehaviour
             }
             else
             {
-                float smoothAngle = Mathf.SmoothDampAngle(gameObject.transform.eulerAngles.y,mainCamera.eulerAngles.y,ref rotationVelocity,0.1f);
+                float smoothAngle = Mathf.SmoothDampAngle(gameObject.transform.eulerAngles.y, mainCamera.eulerAngles.y, ref rotationVelocity, 0.1f);
                 transform.rotation = Quaternion.Euler(0.0f, smoothAngle, 0.0f);
             }
         }
@@ -184,45 +194,45 @@ public class playerController : MonoBehaviour
                          new Vector3(0.0f, verticalVelocity, 0.0f) * Time.deltaTime);
 
         animator.SetFloat(animIDSpeed, animationBlend);
-        if(!input.sprint)
+        if (!input.sprint)
         {
-            xanimBlend = Mathf.Lerp(xanimBlend,input.move.x,smoothSpeed*Time.deltaTime);
-            yanimBlend= Mathf.Lerp(yanimBlend, input.move.y, smoothSpeed * Time.deltaTime);
-            animator.SetFloat(animx,xanimBlend);
-            animator.SetFloat(animy,yanimBlend);
+            xanimBlend = Mathf.Lerp(xanimBlend, input.move.x, smoothSpeed * Time.deltaTime);
+            yanimBlend = Mathf.Lerp(yanimBlend, input.move.y, smoothSpeed * Time.deltaTime);
+            animator.SetFloat(animx, xanimBlend);
+            animator.SetFloat(animy, yanimBlend);
         }
     }
 
     public void addJumpForce()
     {
-        verticalVelocity = Mathf.Sqrt(JumpHeight * -2f * Gravity);
+        verticalVelocity = Mathf.Sqrt(FirstJumpHeight * -2f * Gravity);
     }
 
     private void JumpAndGravity()
     {
+
         if (Grounded)
         {
-            // reset the fall timeout timer
+            // Reset fall timeout timer
             fallTimeoutDelta = FallTimeout;
 
-            // update animator
+            // Update animator
             animator.SetBool(animIDJump, false);
             animator.SetBool(animIDFreeFall, false);
 
-            // stop our velocity dropping infinitely when grounded
+            // Stop velocity drop when grounded
             if (verticalVelocity < 0.0f)
             {
                 verticalVelocity = -2f;
             }
 
-            // Jump
+            // Jump logic
             if (input.jump && jumpTimeoutDelta <= 0.0f)
             {
-                // update animator
-                animator.SetBool(animIDJump, true);
+                PerformJump();
             }
 
-            // jump timeout
+            // Jump timeout logic
             if (jumpTimeoutDelta >= 0.0f)
             {
                 jumpTimeoutDelta -= Time.deltaTime;
@@ -230,29 +240,48 @@ public class playerController : MonoBehaviour
         }
         else
         {
-            // reset the jump timeout timer
+            // Reset jump timeout timer
             jumpTimeoutDelta = JumpTimeout;
 
-            // fall timeout
+            // Fall timeout logic
             if (fallTimeoutDelta >= 0.0f)
             {
                 fallTimeoutDelta -= Time.deltaTime;
             }
             else
             {
-                // update animator
+                // Update animator
                 animator.SetBool(animIDFreeFall, true);
             }
 
-            // if we are not grounded, do not jump
+            // Double jump logic
+            if (input.jump && currentJumps >= 0)
+            {
+                PerformJump();
+            }
+
+            // Prevent jump spamming
             input.jump = false;
         }
 
-        // apply gravity over time if under terminal (multiply by delta time twice to linearly speed up over time)
+        // Apply gravity over time if under terminal velocity
         if (verticalVelocity < terminalVelocity)
         {
             verticalVelocity += Gravity * Time.deltaTime;
         }
+    }
+
+    private void PerformJump()
+    {
+        // Add vertical velocity for jump
+        float jumpHeight = (currentJumps > 1) ? FirstJumpHeight : SecondJumpHeight;
+        verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * Gravity);
+
+        // Update animator
+        animator.SetBool(animIDJump, true);
+
+        // Decrease available jumps
+        currentJumps--;
     }
 
     private static float ClampAngle(float lfAngle, float lfMin, float lfMax)
@@ -262,3 +291,4 @@ public class playerController : MonoBehaviour
         return Mathf.Clamp(lfAngle, lfMin, lfMax);
     }
 }
+
