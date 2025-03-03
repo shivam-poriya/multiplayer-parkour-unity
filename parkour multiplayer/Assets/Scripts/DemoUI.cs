@@ -6,14 +6,12 @@ public class DemoUI : MonoBehaviour
     
     public void startHost()
     {
-        Destroy(GameObject.Find("Camera"));
-        NetworkManager.Singleton.StartHost();
         Destroy(GameObject.Find("Canvas"));
+        NetworkManager.Singleton.StartHost();
     }
     public void startClient()
     {
-        Destroy(GameObject.Find("Camera"));
-        NetworkManager.Singleton.StartClient();
         Destroy(GameObject.Find("Canvas"));
+        NetworkManager.Singleton.StartClient();
     }
 }

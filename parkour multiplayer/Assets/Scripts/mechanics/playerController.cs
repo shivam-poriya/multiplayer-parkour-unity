@@ -1,14 +1,8 @@
-using PlayerMovement;
-using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Threading;
-using Unity.VisualScripting;
-using UnityEditor;
+using Unity.Netcode;
 using UnityEngine;
-using UnityEngine.InputSystem.XR;
 
-public class playerController : MonoBehaviour
+public class playerController : NetworkBehaviour
 {
     [Header("Player Movement")]
     [SerializeField] float runSpeed;
@@ -23,8 +17,8 @@ public class playerController : MonoBehaviour
     [SerializeField] float FallTimeout = 0.15f;
 
     [Space(10)]
-    [SerializeField] float FirstJumpHeight = 1.2f;
-    [SerializeField] float SecondJumpHeight = 1.4f;
+    [SerializeField] float JumpHeight = 1.2f;
+    
 
     [SerializeField] float Gravity = -15.0f;
 
@@ -61,10 +55,11 @@ public class playerController : MonoBehaviour
     int animIDFreeFall;
     int animx;
     int animy;
+    int animIDCrouch;
     [Space(10)]
     [SerializeField] Animator animator;
-    CharacterController controller;
-    InputSystem input;
+    [SerializeField]CharacterController controller;
+
     [SerializeField] Transform mainCamera;
     [SerializeField] float smoothSpeed = 10f;
 
@@ -78,26 +73,54 @@ public class playerController : MonoBehaviour
     float cinemachineTargetPitch;
     float TopClamp = 70.0f;
     float BottomClamp = -30.0f;
-    [SerializeField] Transform lowerRay;
-    [SerializeField] Transform upperRay;
-    [SerializeField] float raycastRange;
-    [SerializeField] float ledgeYOffset;
-
+    [SerializeField] GameObject tppCamera;
+    public GameObject tppCameraVirtual;
+    bool isCrouched = false;
+    bool jump;
+    bool canMove = true;
     void Start()
     {
         cinemachineTargetYaw = CinemachineCameraTarget.transform.rotation.eulerAngles.y;
-        controller = GetComponent<CharacterController>();
-        input = GetComponent<InputSystem>();
         AssignAnimationIDs();
         currentJumps = maxJumps;
         // reset our timeouts on start
         jumpTimeoutDelta = JumpTimeout;
         fallTimeoutDelta = FallTimeout;
+        if (IsOwner)
+        {
+            DisableOtherCameras();
+        }
+        else
+        {
+            tppCamera.SetActive(false);
+            tppCameraVirtual.SetActive(false);
+        }
     }
 
+    private void DisableOtherCameras()
+    {
+        GameObject[] allCameras = GameObject.FindGameObjectsWithTag("MainCamera");
+        GameObject[] vCameras = GameObject.FindGameObjectsWithTag("vc");
+        foreach (var camera in allCameras)
+        {
+            if (camera.gameObject != tppCamera)
+            {
+                camera.gameObject.SetActive(false);
+            }
+        }
+        foreach (var camera in vCameras)
+        {
+            if (camera.gameObject != tppCameraVirtual)
+            {
+                camera.gameObject.SetActive(false);
+            }
+        }
+    }
 
     void Update()
     {
+        Cursor.lockState = CursorLockMode.Locked;
+        if (!IsOwner) return;
         GroundedCheck();
         JumpAndGravity();
         Move();
@@ -105,7 +128,10 @@ public class playerController : MonoBehaviour
 
     void LateUpdate()
     {
+
+        if (!IsOwner) return;
         CameraRotation();
+ 
     }
 
     void AssignAnimationIDs()
@@ -115,6 +141,7 @@ public class playerController : MonoBehaviour
         animIDFreeFall = Animator.StringToHash("FreeFall");
         animx = Animator.StringToHash("x");
         animy = Animator.StringToHash("y");
+        animIDCrouch= Animator.StringToHash("crouch");
     }
 
     private void GroundedCheck()
@@ -134,11 +161,14 @@ public class playerController : MonoBehaviour
 
     void CameraRotation()
     {
+        float x = Input.GetAxisRaw("Mouse X");
+        float y = Input.GetAxisRaw("Mouse Y");
+        Vector2 look = new Vector2(x,y*-1);
         // if there is an input and camera position is not fixed
-        if (input.look.sqrMagnitude >= 0.01f)
+        if (look.sqrMagnitude >= 0.01f)
         {
-            cinemachineTargetYaw += input.look.x;
-            cinemachineTargetPitch += input.look.y;
+            cinemachineTargetYaw += look.x;
+            cinemachineTargetPitch += look.y;
         }
 
         // clamp our rotations so our values are limited 360 degrees
@@ -152,8 +182,14 @@ public class playerController : MonoBehaviour
 
     void Move()
     {
-        float targetSpeed = input.sprint ? sprintSpeed : runSpeed;
-        if (input.move == Vector2.zero) targetSpeed = 0.0f;
+        if(!canMove) { return; }
+        if(Input.GetKeyDown(KeyCode.C) && Grounded)
+        {
+            isCrouched = isCrouched ? false : true;
+        }
+        Vector2 move = new Vector2(Input.GetAxisRaw("Horizontal"),Input.GetAxisRaw("Vertical"));
+        float targetSpeed = Input.GetKey(KeyCode.LeftShift) ? sprintSpeed : runSpeed;
+        if (move == Vector2.zero) targetSpeed = 0.0f;
         float currentHorizontalSpeed = new Vector3(controller.velocity.x, 0.0f, controller.velocity.z).magnitude;
         if (currentHorizontalSpeed < targetSpeed - 0.1f || currentHorizontalSpeed > targetSpeed + 0.1f)
         {
@@ -164,16 +200,15 @@ public class playerController : MonoBehaviour
         {
             speed = targetSpeed;
         }
-
         animationBlend = Mathf.Lerp(animationBlend, targetSpeed, Time.deltaTime * speedChangeRate);
         if (animationBlend < 0.01f) { animationBlend = 0f; }
 
-        Vector3 inputDirection = new Vector3(input.move.x, 0.0f, input.move.y).normalized;
+        Vector3 inputDirection = new Vector3(move.x, 0.0f, move.y).normalized;
 
-        if (input.move != Vector2.zero)
+        if (move != Vector2.zero)
         {
             targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg + mainCamera.eulerAngles.y;
-            if (input.sprint)
+            if ((Input.GetKey(KeyCode.LeftShift) && Grounded) && !isCrouched)
             {
                 float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetRotation, ref rotationVelocity,
                                                        RotationSmoothTime);
@@ -186,31 +221,57 @@ public class playerController : MonoBehaviour
                 transform.rotation = Quaternion.Euler(0.0f, smoothAngle, 0.0f);
             }
         }
-
-        Vector3 targetDirection = Quaternion.Euler(0.0f, targetRotation, 0.0f) * Vector3.forward;
-
+        Vector3 targetDirection = new Vector3(0f,0f,0f);
+        if(!isCrouched)
+            targetDirection = Quaternion.Euler(0.0f, targetRotation, 0.0f) * Vector3.forward;
         // move the player
         controller.Move(targetDirection.normalized * (speed * Time.deltaTime) +
                          new Vector3(0.0f, verticalVelocity, 0.0f) * Time.deltaTime);
 
         animator.SetFloat(animIDSpeed, animationBlend);
-        if (!input.sprint)
+        if (!Input.GetKey(KeyCode.LeftShift) || isCrouched)
         {
-            xanimBlend = Mathf.Lerp(xanimBlend, input.move.x, smoothSpeed * Time.deltaTime);
-            yanimBlend = Mathf.Lerp(yanimBlend, input.move.y, smoothSpeed * Time.deltaTime);
+            xanimBlend = Mathf.Lerp(xanimBlend, move.x, smoothSpeed * Time.deltaTime);
+            yanimBlend = Mathf.Lerp(yanimBlend, move.y, smoothSpeed * Time.deltaTime);
             animator.SetFloat(animx, xanimBlend);
             animator.SetFloat(animy, yanimBlend);
         }
+        if(isCrouched && Grounded)
+        {
+            if(!animator.applyRootMotion)
+            {
+                animator.applyRootMotion = true;
+                float time = 0.633f;
+                if(targetSpeed == 6f) { time = 1.333f; }
+                animator.SetBool(animIDCrouch,true);
+                StartCoroutine(waitForCrouchTransition(time));
+            }
+        }
+        else
+        {
+            if(animator.applyRootMotion)
+            {
+                isCrouched = false;
+                animator.SetBool(animIDCrouch, false);
+                animator.applyRootMotion = false;
+            }
+        }
+    }
+
+    IEnumerator waitForCrouchTransition(float time)
+    {
+        canMove = false;
+        yield return new WaitForSeconds(time-0.01f);
+        canMove = true;
     }
 
     public void addJumpForce()
     {
-        verticalVelocity = Mathf.Sqrt(FirstJumpHeight * -2f * Gravity);
+        verticalVelocity = Mathf.Sqrt(JumpHeight * -2f * Gravity);
     }
-
     private void JumpAndGravity()
     {
-
+        jump = Input.GetKeyDown(KeyCode.Space);
         if (Grounded)
         {
             // Reset fall timeout timer
@@ -219,7 +280,7 @@ public class playerController : MonoBehaviour
             // Update animator
             animator.SetBool(animIDJump, false);
             animator.SetBool(animIDFreeFall, false);
-
+            animator.SetBool("doubleJump", false);
             // Stop velocity drop when grounded
             if (verticalVelocity < 0.0f)
             {
@@ -227,9 +288,10 @@ public class playerController : MonoBehaviour
             }
 
             // Jump logic
-            if (input.jump && jumpTimeoutDelta <= 0.0f)
+            if (jump && jumpTimeoutDelta <= 0.0f && !isCrouched)
             {
-                PerformJump();
+                animator.SetBool(animIDJump, true);
+                currentJumps --;
             }
 
             // Jump timeout logic
@@ -255,13 +317,15 @@ public class playerController : MonoBehaviour
             }
 
             // Double jump logic
-            if (input.jump && currentJumps >= 0)
+            if (jump && currentJumps > 0)
             {
-                PerformJump();
+                animator.SetBool("doubleJump", true);
+                currentJumps--;
+                StartCoroutine(waitForDoubleJump());
             }
 
             // Prevent jump spamming
-            input.jump = false;
+            jump = false;
         }
 
         // Apply gravity over time if under terminal velocity
@@ -271,17 +335,10 @@ public class playerController : MonoBehaviour
         }
     }
 
-    private void PerformJump()
+    IEnumerator waitForDoubleJump()
     {
-        // Add vertical velocity for jump
-        float jumpHeight = (currentJumps > 1) ? FirstJumpHeight : SecondJumpHeight;
-        verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * Gravity);
-
-        // Update animator
-        animator.SetBool(animIDJump, true);
-
-        // Decrease available jumps
-        currentJumps--;
+        yield return new WaitForSeconds(0.4f);
+        animator.SetBool("doubleJump", false);
     }
 
     private static float ClampAngle(float lfAngle, float lfMin, float lfMax)
